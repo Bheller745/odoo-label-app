@@ -2,88 +2,199 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>920D Label Printer</title>
 <style>
-  * { box-sizing: border-box; }
-  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; margin: 0; padding: 24px; background: #f3f4f6; color: #111827; }
-  h1 { font-size: 20px; margin: 0 0 16px; }
-  .panel { background: #fff; border-radius: 8px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-  #search { width: 100%; padding: 10px; font-size: 16px; border: 1px solid #d1d5db; border-radius: 6px; }
-  #results { list-style: none; margin: 8px 0 0; padding: 0; max-height: 240px; overflow-y: auto; }
-  #results li { padding: 8px; cursor: pointer; border-bottom: 1px solid #f3f4f6; }
-  #results li:hover { background: #f9fafb; }
-  .size-toggle { display: flex; gap: 8px; margin-bottom: 16px; }
-  .size-toggle button { flex: 1; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; cursor: pointer; font-size: 14px; }
-  .size-toggle button.active { background: #111827; color: #fff; border-color: #111827; }
-  #print-btn { width: 100%; padding: 12px; font-size: 16px; background: #2563eb; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
-  #print-btn:disabled { background: #9ca3af; cursor: not-allowed; }
-  #preview-wrap { display: flex; justify-content: center; padding: 24px; background: #e5e7eb; border-radius: 8px; }
-
-  /* Label itself -- same markup is used for both on-screen preview and
-     the printed page. Sizing is driven by the per-size width/height
-     (in CSS "in" units) set via JS so the on-screen preview is
-     roughly-to-scale and the print output is dimensionally exact. */
-  .label {
-    display: flex;
-    background: #fff;
-    overflow: hidden;
-    border-left: 0.14in solid var(--bar-color, #6B7280);
+  :root {
+    --ink: #111827;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --accent: #2563eb;
+    --accent-ink: #ffffff;
+    --radius: 12px;
   }
-  .label-photo { width: 35%; display: flex; align-items: center; justify-content: center; background: #f9fafb; overflow: hidden; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", Inter, Arial, sans-serif;
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+  }
+  header {
+    padding: 20px 28px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+  header p { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+
+  main {
+    display: grid;
+    grid-template-columns: 400px 1fr;
+    gap: 20px;
+    padding: 24px 28px;
+    align-items: start;
+  }
+  @media (max-width: 860px) {
+    main { grid-template-columns: 1fr; }
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px;
+  }
+
+  .tabs { display: flex; gap: 6px; margin-bottom: 16px; background: var(--bg); padding: 4px; border-radius: 10px; }
+  .tabs button {
+    flex: 1; padding: 8px 10px; font-size: 13px; font-weight: 600; color: var(--muted);
+    background: transparent; border: none; border-radius: 8px; cursor: pointer;
+  }
+  .tabs button.active { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  input[type=text] {
+    width: 100%; padding: 10px 12px; font-size: 14px;
+    border: 1px solid var(--line); border-radius: 8px; outline: none;
+  }
+  input[type=text]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.12); }
+
+  .btn {
+    padding: 10px 14px; font-size: 14px; font-weight: 600; border: none; border-radius: 8px;
+    cursor: pointer; background: var(--accent); color: var(--accent-ink);
+  }
+  .btn:disabled { background: #cbd5e1; cursor: not-allowed; }
+  .btn-block { width: 100%; }
+  .row { display: flex; gap: 8px; margin-top: 10px; }
+  .row input { flex: 1; }
+
+  ul.list { list-style: none; margin: 10px 0 0; padding: 0; max-height: 280px; overflow-y: auto; }
+  ul.list li {
+    padding: 10px; border-radius: 8px; cursor: pointer; font-size: 13.5px;
+    display: flex; justify-content: space-between; gap: 8px; align-items: baseline;
+  }
+  ul.list li:hover { background: var(--bg); }
+  ul.list li .sub { color: var(--muted); font-size: 12px; white-space: nowrap; }
+
+  .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .error-msg { font-size: 13px; color: #b91c1c; margin-top: 8px; display: none; }
+  .order-meta { font-size: 13px; color: var(--muted); margin: 10px 0 2px; }
+
+  /* ── Label preview panel ───────────────────────────────── */
+  .preview-card { position: sticky; top: 24px; }
+  .size-toggle { display: flex; gap: 8px; margin-bottom: 18px; }
+  .size-toggle button {
+    flex: 1; padding: 10px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--surface); cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted);
+  }
+  .size-toggle button.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+
+  #preview-wrap {
+    display: flex; justify-content: center; align-items: center;
+    padding: 36px; background: repeating-conic-gradient(#eef0f3 0% 25%, #f7f8fa 0% 50%) 0 0/16px 16px;
+    border-radius: 10px; margin-bottom: 18px; min-height: 220px;
+  }
+  .empty-state { color: var(--muted); font-size: 14px; text-align: center; }
+
+  .label {
+    display: flex; background: #fff; overflow: hidden;
+    border-left: 0.16in solid var(--bar-color, #6B7280);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+  }
+  .label-photo { width: 38%; display: flex; align-items: center; justify-content: center; background: #f9fafb; overflow: hidden; }
   .label-photo img { max-width: 100%; max-height: 100%; object-fit: contain; }
   .label-photo .no-photo { font-size: 0.1in; color: #9ca3af; text-align: center; padding: 4px; }
-  .label-body { flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 0.06in; min-width: 0; }
-  .label-name { font-weight: 700; font-size: 0.14in; line-height: 1.15; overflow: hidden; }
-  .label-desc { font-size: 0.09in; color: #374151; line-height: 1.2; overflow: hidden; margin-top: 2px; }
+  .label-body { flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 0.08in 0.1in; min-width: 0; }
+  .label-name { font-weight: 700; font-size: 0.17in; line-height: 1.15; overflow: hidden; }
+  .label-sku { font-size: 0.08in; color: #9ca3af; margin-top: 1px; }
+  .label-desc { font-size: 0.1in; color: #374151; line-height: 1.25; overflow: hidden; margin-top: 3px; }
   .label-barcode { margin-top: auto; text-align: center; }
-  .label-barcode img { max-width: 100%; height: 0.3in; }
+  .label-barcode img { max-width: 100%; height: 0.32in; }
   .label-barcode .no-barcode { font-size: 0.08in; color: #9ca3af; }
 
-  #print-style { display: none; }
+  #print-btn { font-size: 15px; padding: 13px; }
 
   @media print {
     body * { visibility: hidden; }
     #preview-wrap, #preview-wrap * { visibility: visible; }
-    #preview-wrap { position: fixed; top: 0; left: 0; padding: 0; background: none; }
-    .label { border-left-width: 0.14in; }
+    #preview-wrap {
+      position: fixed; top: 0; left: 0; padding: 0; background: none; border-radius: 0;
+      min-height: 0; width: 100%; height: 100%;
+    }
   }
 </style>
 <style id="page-size"></style>
 </head>
 <body>
-  <h1>920D Custom — Product Label Printer</h1>
+<header>
+  <h1>920D Custom</h1>
+  <p>Product Label Printer</p>
+</header>
 
-  <div class="panel">
-    <input id="search" type="text" placeholder="Search by name, SKU, or UPC…" autocomplete="off">
-    <ul id="results"></ul>
+<main>
+  <div class="card">
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="product">Search Product</button>
+      <button class="tab-btn" data-tab="order">Order Lookup</button>
+      <button class="tab-btn" data-tab="mo">Scan MO</button>
+    </div>
+
+    <div class="tab-panel active" id="tab-product">
+      <input id="product-search" type="text" placeholder="Search by name, SKU, or UPC…" autocomplete="off">
+      <ul class="list" id="product-results"></ul>
+    </div>
+
+    <div class="tab-panel" id="tab-order">
+      <div class="row">
+        <input id="order-search" type="text" placeholder="Order number (e.g. S00123)" autocomplete="off">
+        <button class="btn" id="order-search-btn">Find</button>
+      </div>
+      <div class="error-msg" id="order-error"></div>
+      <div class="order-meta" id="order-meta"></div>
+      <ul class="list" id="order-items"></ul>
+    </div>
+
+    <div class="tab-panel" id="tab-mo">
+      <div class="row">
+        <input id="mo-search" type="text" placeholder="Scan or type MO number…" autocomplete="off">
+        <button class="btn" id="mo-search-btn">Find</button>
+      </div>
+      <div class="error-msg" id="mo-error"></div>
+      <div class="hint">Scanning the barcode on a printed Manufacturing Order works here too — just click into the box first.</div>
+    </div>
   </div>
 
-  <div class="panel" id="label-panel" style="display:none">
+  <div class="card preview-card">
     <div class="size-toggle" id="size-toggle"></div>
     <div id="preview-wrap">
-      <div class="label" id="label">
+      <div class="empty-state" id="empty-state">Select a product to preview its label</div>
+      <div class="label" id="label" style="display:none">
         <div class="label-photo" id="label-photo"></div>
         <div class="label-body">
           <div class="label-name" id="label-name"></div>
+          <div class="label-sku" id="label-sku"></div>
           <div class="label-desc" id="label-desc"></div>
           <div class="label-barcode" id="label-barcode"></div>
         </div>
       </div>
     </div>
-    <br>
-    <button id="print-btn" disabled>Print Label</button>
+    <button id="print-btn" class="btn btn-block" disabled>Print Label</button>
   </div>
+</main>
 
 <script>
 const LABEL_SIZES = {{ label_sizes | tojson }};
-let currentProduct = null;
 let currentSize = Object.keys(LABEL_SIZES)[0];
 
-const searchInput = document.getElementById('search');
-const resultsEl = document.getElementById('results');
-const panelEl = document.getElementById('label-panel');
 const sizeToggleEl = document.getElementById('size-toggle');
 const printBtn = document.getElementById('print-btn');
+const emptyState = document.getElementById('empty-state');
+const labelEl = document.getElementById('label');
 
 Object.entries(LABEL_SIZES).forEach(([key, size]) => {
   const btn = document.createElement('button');
@@ -95,58 +206,122 @@ Object.entries(LABEL_SIZES).forEach(([key, size]) => {
 
 function applySize() {
   const size = LABEL_SIZES[currentSize];
-  document.getElementById('label').style.width = size.width_in + 'in';
-  document.getElementById('label').style.height = size.height_in + 'in';
+  labelEl.style.width = size.width_in + 'in';
+  labelEl.style.height = size.height_in + 'in';
   document.getElementById('page-size').textContent =
     `@page { size: ${size.width_in}in ${size.height_in}in; margin: 0; }`;
   [...sizeToggleEl.children].forEach(b => b.classList.toggle('active', b.dataset.key === currentSize));
 }
 
-let searchTimer = null;
-searchInput.addEventListener('input', () => {
-  clearTimeout(searchTimer);
-  const q = searchInput.value.trim();
-  if (!q) { resultsEl.innerHTML = ''; return; }
-  searchTimer = setTimeout(() => doSearch(q), 250);
+// ── Tabs ──────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + btn.dataset.tab));
+  });
 });
 
-async function doSearch(q) {
-  const res = await fetch(`/api/products/search?q=${encodeURIComponent(q)}`);
-  const products = await res.json();
-  resultsEl.innerHTML = '';
-  for (const p of products) {
-    const li = document.createElement('li');
-    li.textContent = `${p.name}${p.default_code ? ' — ' + p.default_code : ''}`;
-    li.onclick = () => selectProduct(p.id);
-    resultsEl.appendChild(li);
-  }
-}
-
-async function selectProduct(id) {
-  const res = await fetch(`/api/products/${id}/label-data`);
+// ── Load a product (by template id) into the preview ─────
+async function loadProduct(templateId) {
+  const res = await fetch(`/api/products/${templateId}/label-data`);
+  if (!res.ok) return;
   const data = await res.json();
-  currentProduct = data;
-  resultsEl.innerHTML = '';
-  searchInput.value = data.name;
-  panelEl.style.display = 'block';
 
-  document.getElementById('label').style.setProperty('--bar-color', data.color);
+  emptyState.style.display = 'none';
+  labelEl.style.display = 'flex';
+  labelEl.style.setProperty('--bar-color', data.color);
   document.getElementById('label-name').textContent = data.name;
+  document.getElementById('label-sku').textContent = data.sku;
   document.getElementById('label-desc').textContent = data.description;
 
-  const photoEl = document.getElementById('label-photo');
-  photoEl.innerHTML = data.has_photo
-    ? `<img src="/api/products/${id}/photo">`
+  document.getElementById('label-photo').innerHTML = data.has_photo
+    ? `<img src="/api/products/${templateId}/photo">`
     : `<div class="no-photo">No photo</div>`;
 
-  const barcodeEl = document.getElementById('label-barcode');
-  barcodeEl.innerHTML = data.barcode
-    ? `<img src="/api/products/${id}/barcode.png">`
+  document.getElementById('label-barcode').innerHTML = data.barcode
+    ? `<img src="/api/products/${templateId}/barcode.png">`
     : `<div class="no-barcode">No UPC</div>`;
 
   printBtn.disabled = false;
   applySize();
 }
+
+// ── Tab 1: product search ────────────────────────────────
+const productSearch = document.getElementById('product-search');
+const productResults = document.getElementById('product-results');
+let searchTimer = null;
+productSearch.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  const q = productSearch.value.trim();
+  if (!q) { productResults.innerHTML = ''; return; }
+  searchTimer = setTimeout(async () => {
+    const res = await fetch(`/api/products/search?q=${encodeURIComponent(q)}`);
+    const products = await res.json();
+    productResults.innerHTML = '';
+    for (const p of products) {
+      const li = document.createElement('li');
+      li.innerHTML = `<span>${p.name}</span><span class="sub">${p.default_code || ''}</span>`;
+      li.onclick = () => loadProduct(p.id);
+      productResults.appendChild(li);
+    }
+  }, 250);
+});
+
+// ── Tab 2: order lookup ───────────────────────────────────
+const orderSearch = document.getElementById('order-search');
+const orderItems = document.getElementById('order-items');
+const orderError = document.getElementById('order-error');
+const orderMeta = document.getElementById('order-meta');
+
+async function findOrder() {
+  const q = orderSearch.value.trim();
+  orderError.style.display = 'none';
+  orderItems.innerHTML = '';
+  orderMeta.textContent = '';
+  if (!q) return;
+
+  const searchRes = await fetch(`/api/orders/search?q=${encodeURIComponent(q)}`);
+  const orders = await searchRes.json();
+  if (!orders.length) {
+    orderError.textContent = `No order found matching "${q}".`;
+    orderError.style.display = 'block';
+    return;
+  }
+  const order = orders[0];
+  const linesRes = await fetch(`/api/orders/${order.id}/lines`);
+  const data = await linesRes.json();
+  orderMeta.textContent = `${data.order_name} — ${data.items.length} item(s)`;
+  for (const item of data.items) {
+    const li = document.createElement('li');
+    li.innerHTML = `<span>${item.name} <span class="sub">×${item.qty}</span></span><span class="sub">${item.sku}</span>`;
+    li.onclick = () => loadProduct(item.product_tmpl_id);
+    orderItems.appendChild(li);
+  }
+}
+document.getElementById('order-search-btn').onclick = findOrder;
+orderSearch.addEventListener('keydown', e => { if (e.key === 'Enter') findOrder(); });
+
+// ── Tab 3: scan MO barcode ────────────────────────────────
+const moSearch = document.getElementById('mo-search');
+const moError = document.getElementById('mo-error');
+
+async function findMo() {
+  const q = moSearch.value.trim();
+  moError.style.display = 'none';
+  if (!q) return;
+
+  const res = await fetch(`/api/mo/lookup?code=${encodeURIComponent(q)}`);
+  const data = await res.json();
+  if (!res.ok) {
+    moError.textContent = data.error || 'Not found.';
+    moError.style.display = 'block';
+    return;
+  }
+  loadProduct(data.product_tmpl_id);
+  moSearch.value = '';
+}
+document.getElementById('mo-search-btn').onclick = findMo;
+moSearch.addEventListener('keydown', e => { if (e.key === 'Enter') findMo(); });
 
 printBtn.addEventListener('click', () => window.print());
 applySize();

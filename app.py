@@ -70,12 +70,9 @@ CATEGORY_COLORS = {
 }
 DEFAULT_COLOR = "#6B7280"  # MISC, uncategorized, and accounting scaffolding (Goods/Expenses/Services/Deliveries)
 
-# Placeholder sizes -- not recoverable from Airtable's Page Designer blocks
-# via API. Bennett adjusts these once he confirms his actual label stock
-# against a real test print (see plan's verification section).
 LABEL_SIZES = {
-    "small": {"label": "Small", "width_in": 2.0, "height_in": 1.0},
-    "large": {"label": "Large", "width_in": 3.0, "height_in": 2.0},
+    "small": {"label": "Small", "width_in": 3.0, "height_in": 2.5},
+    "large": {"label": "Large", "width_in": 4.0, "height_in": 2.0},
 }
 
 DESCRIPTION_MAX_CHARS = 160
@@ -123,6 +120,84 @@ def label_data(product_id):
         "color": CATEGORY_COLORS.get(category_name, DEFAULT_COLOR),
         "barcode": p["barcode"] or None,
         "has_photo": bool(p["image_1920"]),
+    })
+
+
+def variant_to_template_ids(variant_ids):
+    """sale.order.line / mrp.production hold product.product (variant) ids;
+    our label endpoints key off product.template ids -- resolve the lot in
+    one call rather than one lookup per line."""
+    if not variant_ids:
+        return {}
+    variants = odoo("product.product", "read", [variant_ids], {"fields": ["product_tmpl_id", "default_code"]})
+    return {v["id"]: v for v in variants}
+
+
+@app.route("/api/orders/search")
+def search_orders():
+    q = (request.args.get("q") or "").strip()
+    if not q:
+        return jsonify([])
+    orders = odoo("sale.order", "search_read", [[("name", "ilike", q)]],
+                  {"fields": ["id", "name", "partner_id", "state", "date_order"], "limit": 20})
+    for o_ in orders:
+        o_["partner_name"] = o_["partner_id"][1] if o_["partner_id"] else None
+        del o_["partner_id"]
+    return jsonify(orders)
+
+
+@app.route("/api/orders/<int:order_id>/lines")
+def order_lines(order_id):
+    orders = odoo("sale.order", "read", [[order_id]], {"fields": ["name", "order_line"]})
+    if not orders:
+        return jsonify({"error": "not found"}), 404
+    order = orders[0]
+
+    lines = odoo("sale.order.line", "read", [order["order_line"]],
+                 {"fields": ["product_id", "product_uom_qty", "name"]})
+    lines = [l for l in lines if l["product_id"]]  # skip section/note lines, which have no product
+    variants = variant_to_template_ids([l["product_id"][0] for l in lines])
+
+    items = []
+    for l in lines:
+        variant = variants.get(l["product_id"][0])
+        if not variant:
+            continue
+        items.append({
+            "product_tmpl_id": variant["product_tmpl_id"][0],
+            "sku": variant["default_code"] or "",
+            "name": l["product_id"][1],
+            "qty": l["product_uom_qty"],
+        })
+    return jsonify({"order_name": order["name"], "items": items})
+
+
+@app.route("/api/mo/lookup")
+def mo_lookup():
+    code = (request.args.get("code") or "").strip()
+    if not code:
+        return jsonify({"error": "code is required"}), 400
+
+    mos = odoo("mrp.production", "search_read", [[("name", "=", code)]],
+               {"fields": ["name", "product_id", "product_qty", "state"], "limit": 1})
+    if not mos:
+        mos = odoo("mrp.production", "search_read", [[("name", "ilike", code)]],
+                   {"fields": ["name", "product_id", "product_qty", "state"], "limit": 1})
+    if not mos:
+        return jsonify({"error": f"No Manufacturing Order found matching '{code}'"}), 404
+
+    mo = mos[0]
+    variant = variant_to_template_ids([mo["product_id"][0]]).get(mo["product_id"][0])
+    if not variant:
+        return jsonify({"error": "MO's product could not be resolved"}), 404
+
+    return jsonify({
+        "mo_name": mo["name"],
+        "mo_state": mo["state"],
+        "mo_qty": mo["product_qty"],
+        "product_tmpl_id": variant["product_tmpl_id"][0],
+        "sku": variant["default_code"] or "",
+        "name": mo["product_id"][1],
     })
 
 
