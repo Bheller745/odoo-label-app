@@ -95,12 +95,32 @@ def index():
 @app.route("/api/products/search")
 def search_products():
     q = (request.args.get("q") or "").strip()
-    if not q:
+    category_id = request.args.get("category_id", type=int)
+
+    if not q and not category_id:
         return jsonify([])
-    domain = ["|", "|", ("name", "ilike", q), ("default_code", "ilike", q), ("barcode", "=", q)]
+
+    domain = []
+    if q:
+        domain += ["|", "|", ("name", "ilike", q), ("default_code", "ilike", q), ("barcode", "=", q)]
+    if category_id:
+        domain = (["&"] + domain + [("categ_id", "=", category_id)]) if domain else [("categ_id", "=", category_id)]
+
     products = odoo("product.template", "search_read", [domain],
-                     {"fields": ["id", "name", "default_code"], "limit": 20})
+                     {"fields": ["id", "name", "default_code"], "limit": 50, "order": "name"})
     return jsonify(products)
+
+
+# Accounting scaffolding categories, not real product groups -- left out
+# of the browse-by-category list (see CATEGORY_COLORS note above).
+NON_PRODUCT_CATEGORIES = {"Goods", "Expenses", "Services", "Deliveries"}
+
+
+@app.route("/api/categories")
+def categories():
+    cats = odoo("product.category", "search_read", [[]], {"fields": ["id", "name"], "order": "name"})
+    cats = [c for c in cats if c["name"] not in NON_PRODUCT_CATEGORIES]
+    return jsonify(cats)
 
 
 @app.route("/api/products/<int:product_id>/label-data")

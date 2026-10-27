@@ -63,6 +63,11 @@
     border: 1px solid var(--line); border-radius: 8px; outline: none;
   }
   input[type=text]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.12); }
+  select {
+    width: 100%; padding: 9px 12px; font-size: 13.5px; color: var(--ink);
+    border: 1px solid var(--line); border-radius: 8px; outline: none; background: var(--surface);
+  }
+  select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.12); }
 
   .btn {
     padding: 10px 14px; font-size: 14px; font-weight: 600; border: none; border-radius: 8px;
@@ -110,11 +115,10 @@
   .label-photo img { max-width: 100%; max-height: 100%; object-fit: contain; }
   .label-photo .no-photo { font-size: 0.1in; color: #9ca3af; text-align: center; padding: 4px; }
   .label-body { flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 0.08in 0.1in; min-width: 0; }
-  .label-name { font-weight: 700; font-size: 0.17in; line-height: 1.15; overflow: hidden; }
-  .label-sku { font-size: 0.08in; color: #9ca3af; margin-top: 1px; }
+  .label-name { font-weight: 700; font-size: 0.22in; line-height: 1.1; overflow: hidden; letter-spacing: 0.01em; }
   .label-desc { font-size: 0.1in; color: #374151; line-height: 1.25; overflow: hidden; margin-top: 3px; }
   .label-barcode { margin-top: auto; text-align: center; }
-  .label-barcode img { max-width: 100%; height: 0.32in; }
+  .label-barcode img { max-width: 100%; height: 0.6in; }
   .label-barcode .no-barcode { font-size: 0.08in; color: #9ca3af; }
 
   #print-btn { font-size: 15px; padding: 13px; }
@@ -146,6 +150,9 @@
 
     <div class="tab-panel active" id="tab-product">
       <input id="product-search" type="text" placeholder="Search by name, SKU, or UPC…" autocomplete="off">
+      <select id="category-filter" style="margin-top:8px">
+        <option value="">All Categories</option>
+      </select>
       <ul class="list" id="product-results"></ul>
     </div>
 
@@ -177,7 +184,6 @@
         <div class="label-photo" id="label-photo"></div>
         <div class="label-body">
           <div class="label-name" id="label-name"></div>
-          <div class="label-sku" id="label-sku"></div>
           <div class="label-desc" id="label-desc"></div>
           <div class="label-barcode" id="label-barcode"></div>
         </div>
@@ -230,8 +236,7 @@ async function loadProduct(templateId) {
   emptyState.style.display = 'none';
   labelEl.style.display = 'flex';
   labelEl.style.setProperty('--bar-color', data.color);
-  document.getElementById('label-name').textContent = data.name;
-  document.getElementById('label-sku').textContent = data.sku;
+  document.getElementById('label-name').textContent = data.sku || data.name;
   document.getElementById('label-desc').textContent = data.description;
 
   document.getElementById('label-photo').innerHTML = data.has_photo
@@ -246,26 +251,46 @@ async function loadProduct(templateId) {
   applySize();
 }
 
-// ── Tab 1: product search ────────────────────────────────
+// ── Tab 1: product search (+ optional category filter) ───
 const productSearch = document.getElementById('product-search');
 const productResults = document.getElementById('product-results');
+const categoryFilter = document.getElementById('category-filter');
+
+fetch('/api/categories').then(r => r.json()).then(cats => {
+  for (const c of cats) {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = c.name;
+    categoryFilter.appendChild(opt);
+  }
+});
+
+async function runProductSearch() {
+  const q = productSearch.value.trim();
+  const categoryId = categoryFilter.value;
+  if (!q && !categoryId) { productResults.innerHTML = ''; return; }
+
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  if (categoryId) params.set('category_id', categoryId);
+
+  const res = await fetch(`/api/products/search?${params}`);
+  const products = await res.json();
+  productResults.innerHTML = '';
+  for (const p of products) {
+    const li = document.createElement('li');
+    li.innerHTML = `<span>${p.name}</span><span class="sub">${p.default_code || ''}</span>`;
+    li.onclick = () => loadProduct(p.id);
+    productResults.appendChild(li);
+  }
+}
+
 let searchTimer = null;
 productSearch.addEventListener('input', () => {
   clearTimeout(searchTimer);
-  const q = productSearch.value.trim();
-  if (!q) { productResults.innerHTML = ''; return; }
-  searchTimer = setTimeout(async () => {
-    const res = await fetch(`/api/products/search?q=${encodeURIComponent(q)}`);
-    const products = await res.json();
-    productResults.innerHTML = '';
-    for (const p of products) {
-      const li = document.createElement('li');
-      li.innerHTML = `<span>${p.name}</span><span class="sub">${p.default_code || ''}</span>`;
-      li.onclick = () => loadProduct(p.id);
-      productResults.appendChild(li);
-    }
-  }, 250);
+  searchTimer = setTimeout(runProductSearch, 250);
 });
+categoryFilter.addEventListener('change', runProductSearch);
 
 // ── Tab 2: order lookup ───────────────────────────────────
 const orderSearch = document.getElementById('order-search');
