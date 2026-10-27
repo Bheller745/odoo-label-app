@@ -178,15 +178,21 @@ def order_lines(order_id):
     lines = [l for l in lines if l["product_id"]]  # skip section/note lines, which have no product
     variants = variant_to_template_ids([l["product_id"][0] for l in lines])
 
+    tmpl_ids = list({v["product_tmpl_id"][0] for v in variants.values()})
+    tmpls = odoo("product.template", "read", [tmpl_ids], {"fields": ["description_sale"]}) if tmpl_ids else []
+    desc_by_tmpl = {t["id"]: t["description_sale"] for t in tmpls}
+
     items = []
     for l in lines:
         variant = variants.get(l["product_id"][0])
         if not variant:
             continue
+        tmpl_id = variant["product_tmpl_id"][0]
         items.append({
-            "product_tmpl_id": variant["product_tmpl_id"][0],
+            "product_tmpl_id": tmpl_id,
             "sku": variant["default_code"] or "",
             "name": l["product_id"][1],
+            "description": desc_by_tmpl.get(tmpl_id) or l["product_id"][1],
             "qty": l["product_uom_qty"],
         })
     return jsonify({"order_name": order["name"], "items": items})
@@ -246,6 +252,25 @@ def barcode_png(product_id):
         writer = ImageWriter()
         writer.set_options({"write_text": False, "quiet_zone": 1.5})
         code = barcode.get(barcode_type, value, writer=writer)
+        buf = io.BytesIO()
+        code.write(buf)
+        return Response(buf.getvalue(), mimetype="image/png")
+    except Exception:
+        return Response(status=404)
+
+
+@app.route("/api/barcode/general.png")
+def general_barcode():
+    """Code128 barcode for an arbitrary value (the custom order number on
+    packing lists / box labels) -- unlike the product barcode endpoint,
+    this isn't tied to a product or restricted to UPC/EAN digit counts."""
+    value = (request.args.get("value") or "").strip()
+    if not value:
+        return Response(status=404)
+    try:
+        writer = ImageWriter()
+        writer.set_options({"write_text": False, "quiet_zone": 1.5})
+        code = barcode.get("code128", value, writer=writer)
         buf = io.BytesIO()
         code.write(buf)
         return Response(buf.getvalue(), mimetype="image/png")

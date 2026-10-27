@@ -87,6 +87,8 @@
   ul.list li .sub { color: var(--muted); font-size: 12px; white-space: nowrap; }
 
   .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .section-divider { border-top: 1px solid var(--line); margin: 16px 0; }
+  .field-label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
   .error-msg { font-size: 13px; color: #b91c1c; margin-top: 8px; display: none; }
   .order-meta { font-size: 13px; color: var(--muted); margin: 10px 0 2px; }
 
@@ -126,18 +128,44 @@
 
   #print-btn { font-size: 15px; padding: 13px; }
 
+  /* ── Packing list (letter page) ───────────────────────── */
+  .pl-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid var(--ink); padding-bottom: 12px; margin-bottom: 18px; }
+  .pl-title { font-size: 22px; font-weight: 700; }
+  .pl-order-number { font-size: 15px; color: var(--muted); margin-top: 2px; }
+  .pl-barcode-img { height: 0.6in; }
+  .pl-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .pl-table th { text-align: left; border-bottom: 2px solid var(--ink); padding: 6px 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
+  .pl-table td { border-bottom: 1px solid var(--line); padding: 8px; vertical-align: top; }
+  .pl-qty { text-align: right; width: 60px; }
+  .pl-table td.pl-qty { text-align: right; font-weight: 600; }
+
+  /* ── Box label (Large size) ───────────────────────────── */
+  .box-label {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.08in;
+    background: #fff; height: 100%;
+  }
+  .box-label-count { font-size: 0.4in; font-weight: 700; }
+  .box-label-order { font-size: 0.16in; color: #374151; }
+  .box-label-barcode-img { height: 0.7in; max-width: 90%; }
+
   @media print {
     /* display:none actually removes these from the page layout --
        visibility:hidden alone leaves their space behind and was
        pushing the label onto a 2nd/3rd blank page. */
     header, #lookup-panel, .size-toggle, #print-btn { display: none !important; }
     body { background: #fff; }
-    main { display: block; padding: 0; margin: 0; }
-    .preview-card { border: none; padding: 0; box-shadow: none; position: static; }
-    #preview-wrap {
-      display: block; padding: 0; margin: 0; background: none; border-radius: 0; min-height: 0;
-    }
-    .label { box-shadow: none; margin: 0; }
+
+    body[data-print-mode="product"] main { display: block; padding: 0; margin: 0; }
+    body[data-print-mode="product"] .preview-card { border: none; padding: 0; box-shadow: none; position: static; }
+    body[data-print-mode="product"] #preview-wrap { display: block; padding: 0; margin: 0; background: none; border-radius: 0; min-height: 0; }
+    body[data-print-mode="product"] .label { box-shadow: none; margin: 0; }
+    body:not([data-print-mode="product"]) main { display: none !important; }
+
+    body[data-print-mode="packing-list"] #packing-list { display: block !important; }
+    body:not([data-print-mode="packing-list"]) #packing-list { display: none !important; }
+
+    body[data-print-mode="box-label"] #box-label-wrap { display: block !important; }
+    body:not([data-print-mode="box-label"]) #box-label-wrap { display: none !important; }
   }
 </style>
 <style id="page-size"></style>
@@ -172,6 +200,21 @@
       <div class="error-msg" id="order-error"></div>
       <div class="order-meta" id="order-meta"></div>
       <ul class="list" id="order-items"></ul>
+
+      <div class="section-divider"></div>
+      <label class="field-label">Order # (shown on packing list / box label — editable)</label>
+      <input id="custom-order-number" type="text" placeholder="Order number">
+
+      <button class="btn btn-block" id="print-packing-list-btn" disabled style="margin-top:10px">Print Packing List</button>
+
+      <div class="section-divider"></div>
+      <label class="field-label">Box Label (Large size)</label>
+      <div class="row" style="margin-top:0">
+        <input id="box-number" type="text" inputmode="numeric" placeholder="Box #" value="1" style="text-align:center">
+        <span style="align-self:center; color:var(--muted); font-size:13px">of</span>
+        <input id="box-total" type="text" inputmode="numeric" placeholder="Total" value="1" style="text-align:center">
+      </div>
+      <button class="btn btn-block" id="print-box-label-btn" disabled style="margin-top:10px">Print Box Label</button>
     </div>
 
     <div class="tab-panel" id="tab-mo">
@@ -200,6 +243,30 @@
     <button id="print-btn" class="btn btn-block" disabled>Print Label</button>
   </div>
 </main>
+
+<!-- Packing list -- letter-size, print-only -->
+<div id="packing-list" style="display:none">
+  <div class="pl-header">
+    <div>
+      <div class="pl-title">Packing List</div>
+      <div class="pl-order-number" id="pl-order-number"></div>
+    </div>
+    <img id="pl-barcode" class="pl-barcode-img">
+  </div>
+  <table class="pl-table">
+    <thead><tr><th>SKU</th><th>Description</th><th class="pl-qty">QTY</th></tr></thead>
+    <tbody id="pl-rows"></tbody>
+  </table>
+</div>
+
+<!-- Box label -- Large label size, print-only -->
+<div id="box-label-wrap" style="display:none">
+  <div class="box-label" id="box-label">
+    <div class="box-label-count" id="box-label-count"></div>
+    <div class="box-label-order" id="box-label-order"></div>
+    <img id="box-label-barcode" class="box-label-barcode-img">
+  </div>
+</div>
 
 <script>
 const LABEL_SIZES = {{ label_sizes | tojson }};
@@ -305,12 +372,19 @@ const orderSearch = document.getElementById('order-search');
 const orderItems = document.getElementById('order-items');
 const orderError = document.getElementById('order-error');
 const orderMeta = document.getElementById('order-meta');
+const customOrderNumber = document.getElementById('custom-order-number');
+const printPackingListBtn = document.getElementById('print-packing-list-btn');
+const printBoxLabelBtn = document.getElementById('print-box-label-btn');
+let currentOrderItems = [];
 
 async function findOrder() {
   const q = orderSearch.value.trim();
   orderError.style.display = 'none';
   orderItems.innerHTML = '';
   orderMeta.textContent = '';
+  currentOrderItems = [];
+  printPackingListBtn.disabled = true;
+  printBoxLabelBtn.disabled = true;
   if (!q) return;
 
   const searchRes = await fetch(`/api/orders/search?q=${encodeURIComponent(q)}`);
@@ -324,6 +398,11 @@ async function findOrder() {
   const linesRes = await fetch(`/api/orders/${order.id}/lines`);
   const data = await linesRes.json();
   orderMeta.textContent = `${data.order_name} — ${data.items.length} item(s)`;
+  currentOrderItems = data.items;
+  customOrderNumber.value = data.order_name;
+  printPackingListBtn.disabled = false;
+  printBoxLabelBtn.disabled = false;
+
   for (const item of data.items) {
     const li = document.createElement('li');
     li.innerHTML = `<span>${item.name} <span class="sub">×${item.qty}</span></span><span class="sub">${item.sku}</span>`;
@@ -333,6 +412,49 @@ async function findOrder() {
 }
 document.getElementById('order-search-btn').onclick = findOrder;
 orderSearch.addEventListener('keydown', e => { if (e.key === 'Enter') findOrder(); });
+
+function setPrintMode(mode, pageCss) {
+  document.body.dataset.printMode = mode;
+  document.getElementById('page-size').textContent = pageCss;
+}
+window.addEventListener('afterprint', () => { setPrintMode('product', ''); applySize(); });
+
+// ── Packing list ──────────────────────────────────────────
+printPackingListBtn.addEventListener('click', () => {
+  const orderNum = customOrderNumber.value.trim();
+  document.getElementById('pl-order-number').textContent = orderNum;
+  document.getElementById('pl-barcode').src = `/api/barcode/general.png?value=${encodeURIComponent(orderNum)}`;
+
+  const rows = document.getElementById('pl-rows');
+  rows.innerHTML = '';
+  for (const item of currentOrderItems) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${item.sku}</td><td>${item.description}</td><td class="pl-qty">${item.qty}</td>`;
+    rows.appendChild(tr);
+  }
+
+  setPrintMode('packing-list', '@page { size: letter; margin: 0.5in; }');
+  window.print();
+});
+
+// ── Box label ─────────────────────────────────────────────
+printBoxLabelBtn.addEventListener('click', () => {
+  const orderNum = customOrderNumber.value.trim();
+  const boxNum = document.getElementById('box-number').value.trim() || '1';
+  const boxTotal = document.getElementById('box-total').value.trim() || '1';
+
+  document.getElementById('box-label-count').textContent = `Box ${boxNum} of ${boxTotal}`;
+  document.getElementById('box-label-order').textContent = orderNum;
+  document.getElementById('box-label-barcode').src = `/api/barcode/general.png?value=${encodeURIComponent(orderNum)}`;
+
+  const size = LABEL_SIZES.large;
+  const el = document.getElementById('box-label');
+  el.style.width = size.width_in + 'in';
+  el.style.height = size.height_in + 'in';
+
+  setPrintMode('box-label', `@page { size: ${size.width_in}in ${size.height_in}in; margin: 0; }`);
+  window.print();
+});
 
 // ── Tab 3: scan MO barcode ────────────────────────────────
 const moSearch = document.getElementById('mo-search');
@@ -356,7 +478,8 @@ async function findMo() {
 document.getElementById('mo-search-btn').onclick = findMo;
 moSearch.addEventListener('keydown', e => { if (e.key === 'Enter') findMo(); });
 
-printBtn.addEventListener('click', () => window.print());
+printBtn.addEventListener('click', () => { setPrintMode('product', ''); applySize(); window.print(); });
+document.body.dataset.printMode = 'product';
 applySize();
 </script>
 </body>
