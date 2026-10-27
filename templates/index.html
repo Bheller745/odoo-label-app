@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>920D Label Printer</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; margin: 0; padding: 24px; background: #f3f4f6; color: #111827; }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  .panel { background: #fff; border-radius: 8px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  #search { width: 100%; padding: 10px; font-size: 16px; border: 1px solid #d1d5db; border-radius: 6px; }
+  #results { list-style: none; margin: 8px 0 0; padding: 0; max-height: 240px; overflow-y: auto; }
+  #results li { padding: 8px; cursor: pointer; border-bottom: 1px solid #f3f4f6; }
+  #results li:hover { background: #f9fafb; }
+  .size-toggle { display: flex; gap: 8px; margin-bottom: 16px; }
+  .size-toggle button { flex: 1; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; cursor: pointer; font-size: 14px; }
+  .size-toggle button.active { background: #111827; color: #fff; border-color: #111827; }
+  #print-btn { width: 100%; padding: 12px; font-size: 16px; background: #2563eb; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+  #print-btn:disabled { background: #9ca3af; cursor: not-allowed; }
+  #preview-wrap { display: flex; justify-content: center; padding: 24px; background: #e5e7eb; border-radius: 8px; }
+
+  /* Label itself -- same markup is used for both on-screen preview and
+     the printed page. Sizing is driven by the per-size width/height
+     (in CSS "in" units) set via JS so the on-screen preview is
+     roughly-to-scale and the print output is dimensionally exact. */
+  .label {
+    display: flex;
+    background: #fff;
+    overflow: hidden;
+    border-left: 0.14in solid var(--bar-color, #6B7280);
+  }
+  .label-photo { width: 35%; display: flex; align-items: center; justify-content: center; background: #f9fafb; overflow: hidden; }
+  .label-photo img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .label-photo .no-photo { font-size: 0.1in; color: #9ca3af; text-align: center; padding: 4px; }
+  .label-body { flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 0.06in; min-width: 0; }
+  .label-name { font-weight: 700; font-size: 0.14in; line-height: 1.15; overflow: hidden; }
+  .label-desc { font-size: 0.09in; color: #374151; line-height: 1.2; overflow: hidden; margin-top: 2px; }
+  .label-barcode { margin-top: auto; text-align: center; }
+  .label-barcode img { max-width: 100%; height: 0.3in; }
+  .label-barcode .no-barcode { font-size: 0.08in; color: #9ca3af; }
+
+  #print-style { display: none; }
+
+  @media print {
+    body * { visibility: hidden; }
+    #preview-wrap, #preview-wrap * { visibility: visible; }
+    #preview-wrap { position: fixed; top: 0; left: 0; padding: 0; background: none; }
+    .label { border-left-width: 0.14in; }
+  }
+</style>
+<style id="page-size"></style>
+</head>
+<body>
+  <h1>920D Custom — Product Label Printer</h1>
+
+  <div class="panel">
+    <input id="search" type="text" placeholder="Search by name, SKU, or UPC…" autocomplete="off">
+    <ul id="results"></ul>
+  </div>
+
+  <div class="panel" id="label-panel" style="display:none">
+    <div class="size-toggle" id="size-toggle"></div>
+    <div id="preview-wrap">
+      <div class="label" id="label">
+        <div class="label-photo" id="label-photo"></div>
+        <div class="label-body">
+          <div class="label-name" id="label-name"></div>
+          <div class="label-desc" id="label-desc"></div>
+          <div class="label-barcode" id="label-barcode"></div>
+        </div>
+      </div>
+    </div>
+    <br>
+    <button id="print-btn" disabled>Print Label</button>
+  </div>
+
+<script>
+const LABEL_SIZES = {{ label_sizes | tojson }};
+let currentProduct = null;
+let currentSize = Object.keys(LABEL_SIZES)[0];
+
+const searchInput = document.getElementById('search');
+const resultsEl = document.getElementById('results');
+const panelEl = document.getElementById('label-panel');
+const sizeToggleEl = document.getElementById('size-toggle');
+const printBtn = document.getElementById('print-btn');
+
+Object.entries(LABEL_SIZES).forEach(([key, size]) => {
+  const btn = document.createElement('button');
+  btn.textContent = `${size.label} (${size.width_in}" × ${size.height_in}")`;
+  btn.onclick = () => { currentSize = key; applySize(); };
+  btn.dataset.key = key;
+  sizeToggleEl.appendChild(btn);
+});
+
+function applySize() {
+  const size = LABEL_SIZES[currentSize];
+  document.getElementById('label').style.width = size.width_in + 'in';
+  document.getElementById('label').style.height = size.height_in + 'in';
+  document.getElementById('page-size').textContent =
+    `@page { size: ${size.width_in}in ${size.height_in}in; margin: 0; }`;
+  [...sizeToggleEl.children].forEach(b => b.classList.toggle('active', b.dataset.key === currentSize));
+}
+
+let searchTimer = null;
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  const q = searchInput.value.trim();
+  if (!q) { resultsEl.innerHTML = ''; return; }
+  searchTimer = setTimeout(() => doSearch(q), 250);
+});
+
+async function doSearch(q) {
+  const res = await fetch(`/api/products/search?q=${encodeURIComponent(q)}`);
+  const products = await res.json();
+  resultsEl.innerHTML = '';
+  for (const p of products) {
+    const li = document.createElement('li');
+    li.textContent = `${p.name}${p.default_code ? ' — ' + p.default_code : ''}`;
+    li.onclick = () => selectProduct(p.id);
+    resultsEl.appendChild(li);
+  }
+}
+
+async function selectProduct(id) {
+  const res = await fetch(`/api/products/${id}/label-data`);
+  const data = await res.json();
+  currentProduct = data;
+  resultsEl.innerHTML = '';
+  searchInput.value = data.name;
+  panelEl.style.display = 'block';
+
+  document.getElementById('label').style.setProperty('--bar-color', data.color);
+  document.getElementById('label-name').textContent = data.name;
+  document.getElementById('label-desc').textContent = data.description;
+
+  const photoEl = document.getElementById('label-photo');
+  photoEl.innerHTML = data.has_photo
+    ? `<img src="/api/products/${id}/photo">`
+    : `<div class="no-photo">No photo</div>`;
+
+  const barcodeEl = document.getElementById('label-barcode');
+  barcodeEl.innerHTML = data.barcode
+    ? `<img src="/api/products/${id}/barcode.png">`
+    : `<div class="no-barcode">No UPC</div>`;
+
+  printBtn.disabled = false;
+  applySize();
+}
+
+printBtn.addEventListener('click', () => window.print());
+applySize();
+</script>
+</body>
+</html>
