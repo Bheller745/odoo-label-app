@@ -133,20 +133,23 @@
   .pl-title { font-size: 22px; font-weight: 700; }
   .pl-order-number { font-size: 15px; color: var(--muted); margin-top: 2px; }
   .pl-barcode-img { height: 0.6in; }
-  .pl-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .pl-table th { text-align: left; border-bottom: 2px solid var(--ink); padding: 6px 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
-  .pl-table td { border-bottom: 1px solid var(--line); padding: 8px; vertical-align: top; }
+  .pl-table { width: 100%; border-collapse: collapse; font-size: 17px; color: #000; }
+  .pl-table th { text-align: left; border-bottom: 2px solid var(--ink); padding: 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.03em; }
+  .pl-table td { border-bottom: 1px solid var(--line); padding: 12px 8px; vertical-align: top; font-weight: 500; }
   .pl-qty { text-align: right; width: 60px; }
-  .pl-table td.pl-qty { text-align: right; font-weight: 600; }
+  .pl-table td.pl-qty { text-align: right; font-weight: 700; }
 
   /* ── Box label (Large size) ───────────────────────────── */
   .box-label {
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.08in;
-    background: #fff; height: 100%;
+    background: #fff;
   }
   .box-label-count { font-size: 0.4in; font-weight: 700; }
   .box-label-order { font-size: 0.16in; color: #374151; }
   .box-label-barcode-img { height: 0.7in; max-width: 90%; }
+  /* Each box gets its own physical page -- the last one must NOT force a
+     trailing blank page, so break-after is only set on all but the last. */
+  .box-label:not(:last-child) { page-break-after: always; }
 
   @media print {
     /* display:none actually removes these from the page layout --
@@ -210,11 +213,10 @@
       <div class="section-divider"></div>
       <label class="field-label">Box Label (Large size)</label>
       <div class="row" style="margin-top:0">
-        <input id="box-number" type="text" inputmode="numeric" placeholder="Box #" value="1" style="text-align:center">
-        <span style="align-self:center; color:var(--muted); font-size:13px">of</span>
-        <input id="box-total" type="text" inputmode="numeric" placeholder="Total" value="1" style="text-align:center">
+        <span style="align-self:center; color:var(--muted); font-size:13px">How many boxes?</span>
+        <input id="box-count" type="text" inputmode="numeric" placeholder="1" value="1" style="text-align:center; max-width:70px; flex:none">
       </div>
-      <button class="btn btn-block" id="print-box-label-btn" disabled style="margin-top:10px">Print Box Label</button>
+      <button class="btn btn-block" id="print-box-label-btn" disabled style="margin-top:10px">Print Box Labels</button>
     </div>
 
     <div class="tab-panel" id="tab-mo">
@@ -259,14 +261,9 @@
   </table>
 </div>
 
-<!-- Box label -- Large label size, print-only -->
-<div id="box-label-wrap" style="display:none">
-  <div class="box-label" id="box-label">
-    <div class="box-label-count" id="box-label-count"></div>
-    <div class="box-label-order" id="box-label-order"></div>
-    <img id="box-label-barcode" class="box-label-barcode-img">
-  </div>
-</div>
+<!-- Box labels -- Large label size, print-only. One .box-label per box,
+     filled in by printBoxLabelBtn's click handler below. -->
+<div id="box-label-wrap" style="display:none"></div>
 
 <script>
 const LABEL_SIZES = {{ label_sizes | tojson }};
@@ -399,7 +396,7 @@ async function findOrder() {
   const data = await linesRes.json();
   orderMeta.textContent = `${data.order_name} — ${data.items.length} item(s)`;
   currentOrderItems = data.items;
-  customOrderNumber.value = data.order_name;
+  customOrderNumber.value = data.customer_ref;
   printPackingListBtn.disabled = false;
   printBoxLabelBtn.disabled = false;
 
@@ -437,20 +434,29 @@ printPackingListBtn.addEventListener('click', () => {
   window.print();
 });
 
-// ── Box label ─────────────────────────────────────────────
+// ── Box label(s) ──────────────────────────────────────────
+// One page per box, generated straight from "how many boxes?" -- no more
+// manually typing box N of M and reprinting for each one.
 printBoxLabelBtn.addEventListener('click', () => {
   const orderNum = customOrderNumber.value.trim();
-  const boxNum = document.getElementById('box-number').value.trim() || '1';
-  const boxTotal = document.getElementById('box-total').value.trim() || '1';
-
-  document.getElementById('box-label-count').textContent = `Box ${boxNum} of ${boxTotal}`;
-  document.getElementById('box-label-order').textContent = orderNum;
-  document.getElementById('box-label-barcode').src = `/api/barcode/general.png?value=${encodeURIComponent(orderNum)}`;
-
+  const boxCount = Math.max(1, parseInt(document.getElementById('box-count').value, 10) || 1);
+  const barcodeUrl = `/api/barcode/general.png?value=${encodeURIComponent(orderNum)}`;
   const size = LABEL_SIZES.large;
-  const el = document.getElementById('box-label');
-  el.style.width = size.width_in + 'in';
-  el.style.height = size.height_in + 'in';
+
+  const wrap = document.getElementById('box-label-wrap');
+  wrap.innerHTML = '';
+  for (let i = 1; i <= boxCount; i++) {
+    const el = document.createElement('div');
+    el.className = 'box-label';
+    el.style.width = size.width_in + 'in';
+    el.style.height = size.height_in + 'in';
+    el.innerHTML = `
+      <div class="box-label-count">Box ${i} of ${boxCount}</div>
+      <div class="box-label-order">${orderNum}</div>
+      <img class="box-label-barcode-img" src="${barcodeUrl}">
+    `;
+    wrap.appendChild(el);
+  }
 
   setPrintMode('box-label', `@page { size: ${size.width_in}in ${size.height_in}in; margin: 0; }`);
   window.print();

@@ -168,7 +168,7 @@ def search_orders():
 
 @app.route("/api/orders/<int:order_id>/lines")
 def order_lines(order_id):
-    orders = odoo("sale.order", "read", [[order_id]], {"fields": ["name", "order_line"]})
+    orders = odoo("sale.order", "read", [[order_id]], {"fields": ["name", "client_order_ref", "order_line"]})
     if not orders:
         return jsonify({"error": "not found"}), 404
     order = orders[0]
@@ -195,7 +195,13 @@ def order_lines(order_id):
             "description": desc_by_tmpl.get(tmpl_id) or l["product_id"][1],
             "qty": l["product_uom_qty"],
         })
-    return jsonify({"order_name": order["name"], "items": items})
+    # Odoo's own order name (e.g. "S00123") is an internal sequence number --
+    # what the customer actually recognizes as "their" order number is
+    # client_order_ref (their own PO#, or for Shopify orders that field is
+    # usually empty since the Shopify order number is already the order's
+    # name directly). Prefer client_order_ref, fall back to the order name.
+    customer_ref = order.get("client_order_ref") or order["name"]
+    return jsonify({"order_name": order["name"], "customer_ref": customer_ref, "items": items})
 
 
 @app.route("/api/mo/lookup")
